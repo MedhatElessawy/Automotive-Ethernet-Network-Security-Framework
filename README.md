@@ -114,6 +114,23 @@ Attacks are **explicitly separated by protocol stack** and implemented as modula
   - Drops or blocks TLS `ClientHello` packets.
   - Forces fallback to plaintext DoIP.
   - Demonstrates insecure negotiation behavior.
+  - 
+- **Spoofed DoIP Vehicle Announcement**
+  - Sends DoIP Vehicle Identification Requests.
+  - Identifies active ECUs and their logical addresses.
+  - Maps diagnostic entry points.
+    
+- **Logical Address Enumeration**
+  - Iterates through logical address space.
+  - Identifies valid ECU logical addresses responding to DoIP.
+    
+- **DID Enumeration**
+  - Enumerates **ReadDataByIdentifier (0x22)** values.
+  - Identifies readable diagnostic data items.
+
+- **RID Enumeration**
+  - Enumerates **RoutineControl (0x31)** routines.
+  - Detects implemented ECU routines.
 
 - **UDS Security Access Brute Force**
   - Repeatedly targets Service `0x27`.
@@ -125,35 +142,206 @@ Attacks are **explicitly separated by protocol stack** and implemented as modula
   - Exhausts ECU connection limits.
   - Blocks legitimate testers.
 
-- **IPv6 NDP Spoofing (Man-in-the-Middle)**
+- **IPv6 NDP Spoofing and Sniffing  (Man-in-the-Middle)**
   - Sends fake Neighbor Advertisements.
   - Redirects Tester–ECU traffic through attacker.
   - Enables inspection or manipulation.
+  - Impersonates ECU or Tester.
+  - Intercepts and logs DoIP traffic.
 
+- **Replay Attack **
+  - Replays a captured legitimate tester sequence.
+  - Sends packets using the attacker’s IPv6 identity.
+  - Demonstrates lack of request binding or session integrity.
 ---
 
 ### 🌐 SOME/IP Attacks (IPv4)
 
-- **Service Enumeration**
-  - Scans Service ID space.
-  - Discovers undocumented vehicle services.
+- **Service Enumeration (Active Probing)**
+  - Scans the Service ID space.
+  - Discovers offered and undocumented vehicle services.
+  - Maps service, instance, and event group identifiers.
 
-- **Event Impersonation**
-  - Injects fake SOME/IP events.
-  - Triggers mirror movement or blind-spot alerts.
+- **Event Impersonation (Fake Events)**
+  - Injects forged SOME/IP events.
+  - Triggers mirror movement or blind-spot alerts without user input.
+  - Demonstrates lack of message authentication.
 
 - **Method Fuzzing**
-  - Sends random Method IDs.
-  - Identifies hidden or unstable RPC endpoints.
+  - Sends random or sequential Method IDs to valid services.
+  - Identifies implemented, undocumented, or unstable RPC methods.
+  - Observes ECU error handling behavior.
 
-- **ARP Poisoning & Sniffing**
-  - Intercepts unencrypted SOME/IP traffic.
-  - Enables replay and manipulation.
+- **Denial of Service (Offer Flood)**
+  - Floods the network with fake SOME/IP **Service Offer** messages.
+  - Overwhelms Service Discovery listeners.
+  - Causes service instability or prevents legitimate subscriptions.
 
+- **MAC Spoofing & Sniffing (ARP Poisoning)**
+  - Performs ARP cache poisoning on IPv4.
+  - Intercepts unencrypted SOME/IP unicast traffic.
+  - Enables traffic inspection, replay, and manipulation.
 ---
 
 ## ▶️ How to Run the Simulation
 
+### ⚠️ Critical: Choose Your Security Mode (TLS vs Non-TLS)
+By default, the simulation runs in **Non-TLS (Plain)** mode. To switch modes, you must edit the imports in `main_ecu.py`.
+
+* **For Plain DoIP (Default):**
+    * In `main_ecu.py`, use: `from doip_layer import DoIPECU`
+    * Run `tester.py` as the client.
+    * Run `unified_attacker.py` for attacks.
+
+* **For DoIP over TLS (Secure):**
+    * In `main_ecu.py`, change import to: `from doip_layer_tls import DoIPECU`
+    * Run `tester_tls.py` as the client.
+    * Run `downgrade_attack_tls.py` to test TLS stripping.
+---
 ### Step 1: Network Setup
 ```bash
 sudo ./setup_network.sh
+```
+### Step 2: Start the ECUs
+```bash
+# Terminal 1: Main ECU
+sudo ip netns exec ecu1 python3 main_ecu.py
+
+# Terminal 2: Buttons ECU
+sudo ip netns exec ecu2 python3 buttons_ecu.py
+```
+### Step 3: Start the Tester
+```bash
+# Terminal 3:  Tester
+
+# If using Plain DoIP:
+sudo ip netns exec ecu3 python3 tester.py
+
+# If using TLS DoIP:
+sudo ip netns exec ecu3 python3 tester_tls.py
+```
+### Step 4: Start the Attacker
+```bash
+# Terminal 4: Attacker
+
+# For General Attacks (DOIP, SOME/IP):
+sudo ip netns exec attacker_ns python3 unified_attacker.py
+
+# For TLS Downgrade Attack (Specific to TLS Mode):
+sudo ip netns exec attacker_ns python3 downgrade_attack_tls.py
+```
+## 🕹️ Interface & Interactive Controls
+
+Once the simulation is running, each component has a specific interface for interaction.
+
+### 1. ECU Controls (Keyboard Hotkeys)
+Since the ECUs run in the background, they listen for global hotkeys to simulate driver input.
+
+| Node | Action | Hotkey | Description |
+| :--- | :--- | :--- | :--- |
+| **Buttons ECU** | **Subscribe** | `Ctrl` + `Shift` + `S` | Toggle subscription to "Blind Spot" events. |
+| | **Move Mirror** | `Ctrl` + `U` / `D` / `L` / `R` | Sends Up, Down, Left, or Right commands via SOME/IP. | 
+| | **Get Position** | `Ctrl` + `P` | Request current X/Y coordinates from Main ECU. |
+| | **Reset Position** | `Ctrl` + `X` | Request Main ECU to reset coordinates to (0,0). |
+| **Main ECU** | **Subscribe** | `Ctrl` + `Alt` + `S` | Toggle subscription to "Button Press" events. |
+| | **Quit** | `Ctrl` + `Alt` + `Q` | Stop the Main ECU. |
+
+> **Note:** You may need to run the scripts with `sudo` for keyboard hooks to work on Linux.
+
+---
+
+### 2. Tester Interface (CLI Commands)
+The Tester script provides a command-line loop. Type the letter and press Enter.
+
+| Command | Action | Details |
+| :--- | :--- | :--- |
+| `d` | **Discover** | Broadcasts IPv6 UDP request to find the vehicle. |
+| `s` | **Connect** | Establishes TCP (or TLS) connection + Routing Activation. |
+| `t` | **Disconnect** | Closes the TCP/TLS connection. |
+| `e` | **Enable Keep-Alive** | Starts sending `3E 80` (TesterPresent) every 4 seconds. |
+| `x` | **Disable Keep-Alive** | Stops the auto-sender. |
+| `q` | **Quit** | Exits the program. |
+
+---
+Here is the updated script for the Interface & Controls section of your README.md. It includes the new, split tables for the DoIP and SOME/IP attacker modes.
+
+You can copy this entire block and paste it at the bottom of your README.md file.
+
+Markdown
+
+## 🕹️ Interface & Interactive Controls
+
+Once the simulation is running, each component has a specific interface for interaction.
+
+### 1. ECU Controls (Keyboard Hotkeys)
+Since the ECUs run in the background, they listen for global hotkeys to simulate driver input.
+
+| Node | Action | Hotkey | Description |
+| :--- | :--- | :--- | :--- |
+| **Buttons ECU** | **Move Mirror** | `Ctrl` + `U` / `D` / `L` / `R` | Sends Up, Down, Left, or Right commands via SOME/IP. |
+| | **Get Position** | `Ctrl` + `P` | Request current X/Y coordinates from Main ECU. |
+| | **Reset Position** | `Ctrl` + `X` | Request Main ECU to reset coordinates to (0,0). |
+| | **Subscribe** | `Ctrl` + `Shift` + `S` | Toggle subscription to "Blind Spot" events. |
+| | **Quit** | `Ctrl` + `Shift` + `Q` | Stop the Buttons ECU. |
+| **Main ECU** | **Subscribe** | `Ctrl` + `Alt` + `S` | Toggle subscription to "Button Press" events. |
+| | **Quit** | `Ctrl` + `Alt` + `Q` | Stop the Main ECU. |
+
+> **Note:** You may need to run the scripts with `sudo` for keyboard hooks to work on Linux.
+
+---
+
+### 2. Tester Interface (CLI Commands)
+The Tester script provides a command-line loop. Type the letter and press Enter.
+
+| Command | Action | Details |
+| :--- | :--- | :--- |
+| `d` | **Discover** | Broadcasts IPv6 UDP request to find the vehicle. |
+| `s` | **Connect** | Establishes TCP (or TLS) connection + Routing Activation. |
+| `t` | **Disconnect** | Closes the TCP/TLS connection. |
+| `e` | **Enable Keep-Alive** | Starts sending `3E 80` (TesterPresent) every 4 seconds. |
+| `x` | **Disable Keep-Alive** | Stops the auto-sender. |
+| `q` | **Quit** | Exits the program. |
+| `HEX` | **Send UDS** | Type any hex string (e.g., `1001`, `22F190`) to send a raw UDS command. |
+
+---
+
+### 3. Attacker Interface (Unified Tool)
+
+The attacker operates via a unified menu. Select **Mode 1** for IPv6 attacks or **Mode 2** for IPv4 attacks.
+
+#### 🛡️ Mode 1: DoIP/UDS Attacker (IPv6)
+A command-line interface similar to the tester, but equipped with offensive tools.
+
+| Command | Action | Details |
+| :--- | :--- | :--- |
+| `d` | **Discover** | Multicast discovery to find ECU IP and Logical Address (LA). |
+| `s` | **Connect** | Connects to target (TCP Handshake + Routing Activation). |
+| `t` | **Disconnect** | Closes the active TCP connection. |
+| `l` | **Enumerate LA** | Brute-forces Routing Activation to find valid Tester LAs (0x0E00–0x0F00). |
+| `e` / `x` | **Keep-Alive** | `e` = Enable auto `3E 80` sender; `x` = Disable. |
+| `ed` | **Enum DIDs** | Scans Data Identifiers (0xF180–0xF1AF) for valid data. |
+| `er` | **Enum RIDs** | Scans Routine Identifiers (0x0200–0x0300) to find executable routines. |
+| `dos` | **DoS Attack** | Exhausts ECU resources by flooding TCP connections (Max Clients). |
+| `b` | **Brute Force** | Attacks Security Access (0x27) to find the valid Key. |
+| `sniff` | **MitM Attack** | Performs IPv6 NDP Poisoning to intercept Tester traffic. |
+| `list` | **Show Packets** | Displays packets captured during sniffing. |
+| `replay` | **Replay Attack** | Replays captured Tester sequences using the Attacker's IP. |
+| `q` | **Quit** | Returns to the main menu. |
+
+#### 🌐 Mode 2: SOME/IP Attacker (IPv4)
+A numeric menu system for service-oriented attacks.
+
+| Option | Action | Details |
+| :--- | :--- | :--- |
+| `1` | **Enumerate Services** | Actively probes Service IDs to discover hidden endpoints. |
+| `2` | **Impersonate Service** | Injects fake events (e.g., Blind Spot Warning) to trick subscribers. |
+| `3` | **Method Fuzzing** | Calls random Method IDs to find undocumented RPCs. |
+| `4` | **DoS Attack** | Floods `OfferService` packets to overwhelm the network. |
+| `5` | **MAC Spoofing** | Launches Scapy to perform ARP Poisoning & Sniffing. |
+| `6` | **Back** | Returns to the main menu. |
+
+---
+## License
+
+This project is licensed under the MIT License.
+This project is for educational and research purposes only. Use responsibly in controlled lab environments
