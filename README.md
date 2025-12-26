@@ -296,47 +296,6 @@ The Tester script provides a command-line loop. Type the letter and press Enter.
 | `q` | **Quit** | Exits the program. |
 
 ---
-Here is the updated script for the Interface & Controls section of your README.md. It includes the new, split tables for the DoIP and SOME/IP attacker modes.
-
-You can copy this entire block and paste it at the bottom of your README.md file.
-
-Markdown
-
-## 🕹️ Interface & Interactive Controls
-
-Once the simulation is running, each component has a specific interface for interaction.
-
-### 1. ECU Controls (Keyboard Hotkeys)
-Since the ECUs run in the background, they listen for global hotkeys to simulate driver input.
-
-| Node | Action | Hotkey | Description |
-| :--- | :--- | :--- | :--- |
-| **Buttons ECU** | **Move Mirror** | `Ctrl` + `U` / `D` / `L` / `R` | Sends Up, Down, Left, or Right commands via SOME/IP. |
-| | **Get Position** | `Ctrl` + `P` | Request current X/Y coordinates from Main ECU. |
-| | **Reset Position** | `Ctrl` + `X` | Request Main ECU to reset coordinates to (0,0). |
-| | **Subscribe** | `Ctrl` + `Shift` + `S` | Toggle subscription to "Blind Spot" events. |
-| | **Quit** | `Ctrl` + `Shift` + `Q` | Stop the Buttons ECU. |
-| **Main ECU** | **Subscribe** | `Ctrl` + `Alt` + `S` | Toggle subscription to "Button Press" events. |
-| | **Quit** | `Ctrl` + `Alt` + `Q` | Stop the Main ECU. |
-
-> **Note:** You may need to run the scripts with `sudo` for keyboard hooks to work on Linux.
-
----
-
-### 2. Tester Interface (CLI Commands)
-The Tester script provides a command-line loop. Type the letter and press Enter.
-
-| Command | Action | Details |
-| :--- | :--- | :--- |
-| `d` | **Discover** | Broadcasts IPv6 UDP request to find the vehicle. |
-| `s` | **Connect** | Establishes TCP (or TLS) connection + Routing Activation. |
-| `t` | **Disconnect** | Closes the TCP/TLS connection. |
-| `e` | **Enable Keep-Alive** | Starts sending `3E 80` (TesterPresent) every 4 seconds. |
-| `x` | **Disable Keep-Alive** | Stops the auto-sender. |
-| `q` | **Quit** | Exits the program. |
-| `HEX` | **Send UDS** | Type any hex string (e.g., `1001`, `22F190`) to send a raw UDS command. |
-
----
 
 ### 3. Attacker Interface (Unified Tool)
 
