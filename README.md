@@ -182,7 +182,32 @@ Attacks are **explicitly separated by protocol stack** and implemented as modula
   - Intercepts unencrypted SOME/IP unicast traffic.
   - Enables traffic inspection, replay, and manipulation.
 ---
+## 🧩 Requirements
+- System Requirements
+  - **Linux OS** (required)
+    - Tested on Kali 
+    - Must support:
+      - Linux **Network Namespaces**
+      - Virtual Ethernet (**veth**) interfaces
+  - **Python** 
+- Python Dependencies
+  Install using `pip` (preferably inside a virtual environment):
+  
+  - **someipy**  
+    SOME/IP and Service Discovery implementation
+  - **scapy**  
+    Packet crafting, sniffing, ARP/NDP spoofing, replay attacks
+  - **keyboard**  
+    Global hotkey handling for ECU HMI simulation  
+    *(requires root privileges on Linux)*
+  - **cryptography** / **ssl** (Python standard / pip-backed)  
+    TLS support for DoIP over TLS
+- Optional Tools 
+  - **Wireshark**
+    - Used for **packet inspection and validation**
+    - Not required to run the framework
 
+---
 ## ▶️ How to Run the Simulation
 
 ### ⚠️ Critical: Choose Your Security Mode (TLS vs Non-TLS)
@@ -198,11 +223,19 @@ By default, the simulation runs in **Non-TLS (Plain)** mode. To switch modes, yo
     * Run `tester_tls.py` as the client.
     * Run `downgrade_attack_tls.py` to test TLS stripping.
 ---
-### Step 1: Network Setup
+### Step 1: Activate virtual environment
+```bash
+#It is recommended to run the project inside a Python virtual environment to isolate dependencies.
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+### Step 2: Network Setup
 ```bash
 sudo ./setup_network.sh
 ```
-### Step 2: Start the ECUs
+### Step 3: Start the ECUs
 ```bash
 # Terminal 1: Main ECU
 sudo ip netns exec ecu1 python3 main_ecu.py
@@ -210,7 +243,7 @@ sudo ip netns exec ecu1 python3 main_ecu.py
 # Terminal 2: Buttons ECU
 sudo ip netns exec ecu2 python3 buttons_ecu.py
 ```
-### Step 3: Start the Tester
+### Step 4: Start the Tester
 ```bash
 # Terminal 3:  Tester
 
@@ -220,7 +253,7 @@ sudo ip netns exec ecu3 python3 tester.py
 # If using TLS DoIP:
 sudo ip netns exec ecu3 python3 tester_tls.py
 ```
-### Step 4: Start the Attacker
+### Step 5: Start the Attacker
 ```bash
 # Terminal 4: Attacker
 
@@ -341,7 +374,26 @@ A numeric menu system for service-oriented attacks.
 | `6` | **Back** | Returns to the main menu. |
 
 ---
+
+### 📡 Traffic Observation 
+
+Wireshark was used during development and testing to **observe, verify, and analyze packet-level behavior** for DoIP, UDS, and SOME/IP communication.
+
+- Used only for **passive inspection and validation**
+- Not required for running the simulation or executing attacks
+- All attacks, sniffing, and replay functionality are implemented **programmatically** using Scapy and custom tooling
+
+Wireshark serves as a **verification and learning aid**, allowing visibility into:
+- DoIP message flows (UDP discovery, TCP/TLS sessions)
+- UDS request/response frames
+- SOME/IP Service Discovery, events, and RPC traffic
+---
 ## License
 
 This project is licensed under the MIT License.
 This project is for educational and research purposes only. Use responsibly in controlled lab environments
+
+## Disclaimer
+
+This project is intended strictly for educational, research, and laboratory use.
+Do not use this software against real vehicles, production ECUs, or automotive systems without explicit authorization.  
