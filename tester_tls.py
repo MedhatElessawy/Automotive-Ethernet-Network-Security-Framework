@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+"""
+tester_tls.py
+Secure DoIP Diagnostic Tester (IPv6 + TLS)
+
+This script acts as a legitimate diagnostic tool that communicates over IPv6
+using DoIP wrapped in TLS (Transport Layer Security).
+
+Features:
+- UDP Vehicle Discovery (Unencrypted)
+- TCP/TLS Connection (Encrypted)
+- Routing Activation
+- UDS Service Execution
+- Automated Security Access (Seed/Key)
+"""
 import socket
 import struct
 import sys
@@ -11,16 +25,27 @@ from doip_utils import *
 # =========================
 # IPv6 CONFIGURATION
 # =========================
+# [CONFIGURABLE] The IPv6 address of this tester interface
 MY_IP = 'fd00::40'
+
+# [CONFIGURABLE] Fallback IP if discovery fails (e.g., direct connection)
 TARGET_IP_HINT = 'fd00::10'
-discovery_port=13400
-PORT = 3496
+
+# Standard DoIP ports
+discovery_port=13400  # UDP Discovery is usually on 13400
+PORT = 3496           # TCP Data port for Secure DoIP (IANA assigned)
+
+# [CONFIGURABLE] IPv6 Multicast group for Vehicle Identification Request
 BROADCAST_IP = 'ff02::1'
 
+# [CONFIGURABLE] The Logical Address of this Tester (e.g., 0x0E50 for external test equipment)
 LOGICAL_ADDR = 0x0E50
+
+# Keep-alive settings (TesterPresent 0x3E80)
 KEEPALIVE_INTERVAL = 4.0
 AUTO_KEEPALIVE_SERVICE = b'\x3E\x80'
 
+# Global State Variables
 target_ip = None
 logical_addr = None
 tcp_socket = None
@@ -30,24 +55,34 @@ last_keepalive_sent = time.time()
 # =========================
 # TLS CONFIGURATION
 # =========================
+# [CONFIGURABLE] The Common Name (CN) expected in the ECU's certificate
 TLS_SERVER_NAME = "DoIP-ECU"
 
+# Create a default SSL context
 tls_context = ssl.create_default_context()
+
+# [SECURITY CONFIG] Disable hostname checking for lab simulation
 tls_context.check_hostname = False
+
+# [SECURITY CONFIG] Disable certificate chain verification (accept self-signed)
 tls_context.verify_mode = ssl.CERT_NONE
 
+# Set allowed TLS versions (Attempt 1.0 up to 1.2)
 tls_context.minimum_version = ssl.TLSVersion.TLSv1
 tls_context.maximum_version = ssl.TLSVersion.TLSv1_2
 
+# Explicitly enable older TLS versions (often disabled by default in modern Python)
 tls_context.options &= ~ssl.OP_NO_TLSv1
 tls_context.options &= ~ssl.OP_NO_TLSv1_1
 
-# Force the context to allow older, "unsafe" ciphers required for TLS 1.0
+# [CRITICAL] Lower security level to 0.
+# This allows the use of legacy/weak ciphers necessary for TLS 1.0/1.1 compatibility.
 tls_context.set_ciphers('DEFAULT:@SECLEVEL=0')
 
 # =========================
 # SECURITY ACCESS CONFIG
 # =========================
+# [CONFIGURABLE] Secret keys for the Seed & Key algorithm (UDS 0x27)
 PROTECTED_MODE = False
 SECRET_KEY = b"\x93\x11\xfa\x22\x8b"
 CONSTANT = b"\x11\x22\x33\x44"
@@ -57,6 +92,10 @@ CONSTANT = b"\x11\x22\x33\x44"
 # DISCOVERY (UDP IPv6 - NO TLS BY DESIGN)
 # =========================================================
 def do_discovery():
+    """
+    Sends a Vehicle Identification Request (VIR) via UDP multicast.
+    Note: Discovery messages in DoIP are typically unencrypted even in secure modes.
+    """
     global target_ip, logical_addr
 
     sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
@@ -72,6 +111,7 @@ def do_discovery():
     print(f"\n[d] Performing UDP Vehicle Discovery (IPv6) to {BROADCAST_IP}...")
 
     try:
+        # Send payload type 0x0001 (Vehicle ID Request)
         sock.sendto(create_header(TYPE_VEHICLE_ID_REQ, 0), (BROADCAST_IP, discovery_port))
     except Exception as e:
         print(f"[-] Discovery send failed: {e}")
@@ -110,6 +150,12 @@ def do_discovery():
 # TCP + TLS CONNECT
 # =========================================================
 def do_connect():
+    """
+    Establishes a secure TCP connection to the ECU.
+    1. Connects raw TCP socket.
+    2. Performs TLS Handshake (wrapping the socket).
+    3. Performs DoIP Routing Activation.
+    """
     global tcp_socket
 
     if not target_ip:
@@ -123,6 +169,7 @@ def do_connect():
 
     secure_sock = None  # Initialize to avoid UnboundLocalError
 
+    # Loop to try TLS 1.2 first, then fallback to TLS 1.0 (Simulation of negotiation)
     for version in (
             ssl.TLSVersion.TLSv1_2,
             ssl.TLSVersion.TLSv1,
@@ -155,6 +202,7 @@ def do_connect():
 
             # --- CRITICAL EDITS END ---
 
+            # Wrap the raw TCP socket with SSL context
             secure_sock = tls_context.wrap_socket(
                 raw_sock,
                 server_hostname=TLS_SERVER_NAME
@@ -175,6 +223,7 @@ def do_connect():
 
     # ---------- ROUTING ACTIVATION ----------
     # (The rest of your code remains the same)
+    # Required by DoIP (ISO 13400) before any diagnostic data can be sent
     print("[s] Sending Routing Activation Request...")
     act_payload = struct.pack('!HBL', LOGICAL_ADDR, 0, 0)
     secure_sock.send(
@@ -202,6 +251,7 @@ def do_connect():
 # DISCONNECT
 # =========================================================
 def do_disconnect():
+    """Closes the secure connection and resets state."""
     global tcp_socket, auto_keepalive
 
     if not tcp_socket:
@@ -223,10 +273,14 @@ def do_disconnect():
 # SEND UDS (UNCHANGED)
 # =========================================================
 def send_uds(uds_bytes: bytes):
+    """
+    Wraps raw UDS bytes in a DoIP Diagnostic Message header and sends via TLS.
+    """
     if not tcp_socket or not logical_addr:
         print("[-] Not connected.")
         return None
 
+    # DoIP Payload: Source Address (2B) + Target Address (2B) + UDS Data
     payload = struct.pack('!HH', LOGICAL_ADDR, logical_addr) + uds_bytes
 
     try:
@@ -237,22 +291,26 @@ def send_uds(uds_bytes: bytes):
         print(f"[-] Send error: {e}")
         return None
 
+    # Temporarily switch to blocking to wait for response
     tcp_socket.setblocking(1)
     tcp_socket.settimeout(2.0)
 
     try:
+        # Read DoIP Header (8 bytes)
         header = tcp_socket.recv(8)
         if len(header) < 8:
             return None
 
         p_type, p_len, _ = parse_header(header)
 
+        # Handle fragmented or queued messages
         while p_type != TYPE_DIAGNOSTIC_MESSAGE:
             if p_len:
                 tcp_socket.recv(p_len)
             header = tcp_socket.recv(8)
             p_type, p_len, _ = parse_header(header)
 
+        # Read Payload
         payload_data = b''
         while len(payload_data) < p_len:
             payload_data += tcp_socket.recv(p_len - len(payload_data))
@@ -273,10 +331,17 @@ def send_uds(uds_bytes: bytes):
 # SECURITY ACCESS
 # =========================================================
 def seed_to_key(seed):
+    """Calculates the Key from a given Seed (Simple XOR for demo)."""
     return (int.from_bytes(seed, "big") ^ int.from_bytes(CONSTANT, "big")).to_bytes(4, "big")
 
 
 def automated_unlock():
+    """
+    Performs the full UDS Security Access sequence (Service 0x27).
+    1. Request Seed (27 01)
+    2. Calculate Key
+    3. Send Key (27 02)
+    """
     print("\n[AUTO] Starting Security Access...")
     resp = send_uds(b'\x27\x01')
 
@@ -317,6 +382,7 @@ def main():
 
     while True:
         # ---- Auto keep-alive ----
+        # Sends TesterPresent (0x3E) periodically to keep session active
         if auto_keepalive and tcp_socket:
             now = time.time()
             if now - last_keepalive_sent >= KEEPALIVE_INTERVAL:
@@ -377,6 +443,7 @@ def main():
                     uds_bytes = bytes.fromhex(cleaned)
                     pairs = [cleaned[i:i + 2] for i in range(0, len(cleaned), 2)]
                     print(f"\n{' '.join(pairs)} was sent!")
+                    # Check for quick-macro to unlock security
                     if uds_bytes == b'\x27\x01':
                         automated_unlock();
                         continue
