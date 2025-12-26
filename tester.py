@@ -1,3 +1,4 @@
+```python
 import socket
 import struct
 from doip_utils import *
@@ -6,32 +7,40 @@ import select
 import time
 
 # --- IPv6 CONFIGURATION ---
+# MY_IP: tester IPv6 address used to bind the UDP socket for discovery (and optionally TCP).
 MY_IP = 'fd00::40'
+# TARGET_IP_HINT: fallback ECU IPv6 if discovery times out.
 TARGET_IP_HINT = 'fd00::10'  # Main ECU
+# PORT: DoIP port used for UDP discovery and TCP diagnostics (DoIP default is often 13400).
 PORT = 13400
-# IPv6 link-local multicast for DoIP discovery (or site-local ff05::1)
-# For simplicity in local setup, we can try direct unicast if multicast fails,
-# or use interface-specific multicast. Standard DoIP multicast is usually restricted.
-# Let's try ff02::1 (All Nodes) for discovery on the link.
+# IPv6 link-local multicast used here for discovery request destination.
+# NOTE: ff02::1 is all-nodes multicast (link-local). In many setups, multicast may need scope/interface handling.
 BROADCAST_IP = 'ff02::1'
 
+# LOGICAL_ADDR: tester logical address (source address in DoIP diagnostic payload).
 LOGICAL_ADDR = 0x0E50
+# Keep-alive parameters for UDS TesterPresent (3E 80).
 KEEPALIVE_INTERVAL = 4.0
 AUTO_KEEPALIVE_SERVICE = b'\x3E\x80'
 
+# Runtime state populated by discovery/connect.
 target_ip = None
 logical_addr = None
 tcp_socket = None
 auto_keepalive = False
 last_keepalive_sent = time.time()
 
-# Security Config
+# Security Config (used by automated_unlock)
+# PROTECTED_MODE is defined but not used in this file (seed_to_key uses XOR with CONSTANT).
 PROTECTED_MODE = False
 SECRET_KEY = b"\x93\x11\xfa\x22\x8b"
 CONSTANT = b"\x11\x22\x33\x44"
 
 
 def do_discovery():
+    # Purpose:
+    # - Send DoIP Vehicle Identification Request over UDP
+    # - Parse Vehicle Identification Response to learn ECU IP + logical address
     global target_ip, logical_addr
     # IPv6 UDP Socket
     sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
@@ -62,16 +71,19 @@ def do_discovery():
             print(f"[-] Unexpected response type: 0x{p_type:04X}")
             return
 
+        # parse_vehicle_announcement is expected to parse VIN/LA/EID/GID from the DoIP VID response payload.
         entity = parse_vehicle_announcement(payload)
         if not entity:
             print("[-] Failed to parse announcement.")
             return
 
+        # addr[0] is the responder IPv6.
         target_ip = addr[0]
         # Remove %scope_id if present for clean display/connect
         if '%' in target_ip:
             target_ip = target_ip.split('%')[0]
 
+        # logical_addr is ECU logical address discovered from payload.
         logical_addr = entity['logical_addr']
         print("[+] Discovery SUCCESS!")
         print(f"    IP              : {target_ip}")
@@ -89,6 +101,10 @@ def do_discovery():
 
 
 def do_connect():
+    # Purpose:
+    # - Open TCP to ECU DoIP port
+    # - Send Routing Activation Request
+    # - If accepted, keep tcp_socket non-blocking for main loop
     global tcp_socket
     if not target_ip:
         print("[-] No vehicle discovered yet (run 'd' first).")
@@ -109,12 +125,14 @@ def do_connect():
 
     # Routing activation
     print("[s] Sending Routing Activation Request...")
+    # act_payload format used here: '!HBL' = tester LA (H), activation type (B), reserved (L)
     act_payload = struct.pack('!HBL', LOGICAL_ADDR, 0, 0)
     sock.send(create_header(TYPE_ROUTING_ACTIVATION_REQ, len(act_payload)) + act_payload)
 
     try:
         data = sock.recv(1024)
         _, _, body = parse_header(data)
+        # Routing activation response code assumed at body[4]
         code = body[4]
         if code == 0x10:
             print("[+] Routing Activation SUCCESS")
@@ -129,6 +147,9 @@ def do_connect():
 
 
 def do_disconnect():
+    # Purpose:
+    # - Close TCP socket
+    # - Disable keep-alive
     global tcp_socket, auto_keepalive
     if not tcp_socket:
         print("[!] No active connection.")
@@ -144,10 +165,15 @@ def do_disconnect():
 
 
 def send_uds(uds_bytes: bytes):
+    # Purpose:
+    # - Wrap UDS payload into DoIP Diagnostic Message
+    # - Send to ECU
+    # - Temporarily switch socket to blocking with timeout to read one response
     if not tcp_socket or not logical_addr:
         print("[-] Not connected or no logical address.")
         return None
 
+    # DoIP diag payload here: source LA (tester) + target LA (ECU) + UDS bytes
     payload = struct.pack('!HH', LOGICAL_ADDR, logical_addr) + uds_bytes
     try:
         tcp_socket.sendall(create_header(TYPE_DIAGNOSTIC_MESSAGE, len(payload)) + payload)
@@ -168,6 +194,7 @@ def send_uds(uds_bytes: bytes):
 
         p_type, p_len, _ = parse_header(header)
         # Drain loop for async messages
+        # This code keeps reading until it sees DoIP type 0x8002 (TYPE_DIAGNOSTIC_POS_ACK).
         while p_type != 0x8002:
             print(f"[!] Draining unexpected DoIP message type 0x{p_type:04X}")
             if p_len > 0:
@@ -187,6 +214,7 @@ def send_uds(uds_bytes: bytes):
             payload_data += chunk
 
         if p_type == 0x8002:
+            # First 4 bytes of DoIP diag payload are source/target logical addresses.
             sa, ta = struct.unpack('!HH', payload_data[:4])
             uds_resp = payload_data[4:]
             print(f"Response: {uds_resp.hex().upper()}")
@@ -205,12 +233,18 @@ def send_uds(uds_bytes: bytes):
 
 
 def seed_to_key(seed):
+    # Seed->Key algorithm used by automated_unlock():
+    # - XOR seed with CONSTANT (4 bytes)
     c = int.from_bytes(CONSTANT, "big")
     s = int.from_bytes(seed, "big")
     return (s ^ c).to_bytes(4, "big")
 
 
 def automated_unlock():
+    # Purpose:
+    # - Automate UDS SecurityAccess:
+    #   27 01 -> receive 67 01 <seed>
+    #   27 02 <key> -> expect 67 02
     print("\n[AUTO] Starting Security Access (27 01 → 27 02)...")
     resp = send_uds(b'\x27\x01')
     if not resp or len(resp) < 6 or resp[:2] != b'\x67\x01':
@@ -235,6 +269,7 @@ def automated_unlock():
 
 
 def print_status():
+    # Prints current tester state and available commands.
     print("\n=== DoIP UDS Tester (IPv6) ===")
     print(f"Vehicle    : {'Found (' + str(target_ip) + ')' if target_ip else 'Not discovered'}")
     print(f"TCP        : {'CONNECTED' if tcp_socket else 'DISCONNECTED'}")
@@ -244,6 +279,9 @@ def print_status():
 
 
 def main():
+    # Main interactive loop:
+    # - Sends periodic keep-alive if enabled
+    # - Reads stdin non-blocking via select()
     global auto_keepalive, last_keepalive_sent
 
     print("=== DoIP UDS Tester (IPv6) ===\n")
@@ -301,7 +339,7 @@ def main():
                     print("\n[+] Auto 3E80 keep-alive DISABLED")
 
             else:
-                # Hex UDS command
+                # Hex UDS command (raw)
                 cleaned = line.replace(" ", "").replace("0x", "").upper()
                 if len(cleaned) % 2 != 0:
                     print("\n[-] Odd number of hex digits")
@@ -311,6 +349,7 @@ def main():
                     uds_bytes = bytes.fromhex(cleaned)
                     pairs = [cleaned[i:i + 2] for i in range(0, len(cleaned), 2)]
                     print(f"\n{' '.join(pairs)} was sent!")
+                    # Special case: if user sends 27 01, run full seed/key exchange automatically.
                     if uds_bytes == b'\x27\x01':
                         automated_unlock();
                         continue
@@ -324,3 +363,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
