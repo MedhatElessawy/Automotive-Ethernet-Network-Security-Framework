@@ -1,0 +1,5 @@
+scapy
+someipy==1.0.0
+keyboard
+asyncio
+cryptography
