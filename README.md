@@ -234,10 +234,11 @@ pip install -r requirements.txt
 ### Step 2: Network Setup
 ```bash
 # If you want to use MACsec with TLS
-sudo ./setuo_network_with_MACsec.sh
+ sudo bash setuo_network_with_MACsec.sh 
 
 # If you want TLS only
-sudo ./setup_network.sh
+ sudo bash setup_network.sh
+
 ```
 ### Step 3: Start the ECUs
 ```bash
