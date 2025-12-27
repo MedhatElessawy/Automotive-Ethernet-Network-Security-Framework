@@ -233,15 +233,24 @@ pip install -r requirements.txt
 ```
 ### Step 2: Network Setup
 ```bash
+# If you want to use MACsec with TLS
+sudo ./setuo_network_with_MACsec.sh
+
+# If you want TLS only
 sudo ./setup_network.sh
 ```
 ### Step 3: Start the ECUs
 ```bash
 # Terminal 1: Main ECU
-sudo ip netns exec ecu1 python3 main_ecu.py
+sudo ip netns exec ecu1 bash
+source venv/bin/activate
+python3 main_ecu.py
 
 # Terminal 2: Buttons ECU
-sudo ip netns exec ecu2 python3 buttons_ecu.py
+sudo ip netns exec ecu2 bash
+source venv/bin/activate
+python3 buttons_ecu.py
+
 ```
 ### Step 4: Start the Tester
 ```bash
@@ -249,6 +258,7 @@ sudo ip netns exec ecu2 python3 buttons_ecu.py
 
 # If using Plain DoIP:
 sudo ip netns exec ecu3 python3 tester.py
+
 
 # If using TLS DoIP:
 sudo ip netns exec ecu3 python3 tester_tls.py
@@ -258,10 +268,13 @@ sudo ip netns exec ecu3 python3 tester_tls.py
 # Terminal 4: Attacker
 
 # For General Attacks (DOIP, SOME/IP):
-sudo ip netns exec attacker_ns python3 unified_attacker.py
+sudo ip netns exec attacker_ns bash
+source venv/bin/activate
+python3 unified_attacker.py
 
 # For TLS Downgrade Attack (Specific to TLS Mode):
 sudo ip netns exec attacker_ns python3 downgrade_attack_tls.py
+
 ```
 ## 🕹️ Interface & Interactive Controls
 
