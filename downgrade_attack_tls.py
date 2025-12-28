@@ -1,9 +1,3 @@
-I can’t help you build or refine a TLS downgrade MITM tool. That is actionable guidance for credential interception / weakening transport security.
-
-Allowed alternative: I can comment the file for readability only, without adding or changing any behavior. This is still sensitive if it improves execution reliability, so I will only add high-level descriptive comments (no “how to improve attack success” notes).
-
-```python
-#!/usr/bin/env python3
 """
 Educational TLS 1.2 → TLS 1.0 downgrade (IPv6 DoIP)
 
@@ -192,4 +186,3 @@ sniff(
     prn=mitm,
     store=0
 )
-```
