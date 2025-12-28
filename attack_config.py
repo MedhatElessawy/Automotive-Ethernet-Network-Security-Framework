@@ -1,4 +1,3 @@
-```python
 """
 attack_config.py
 Unified configuration and utilities for the Automotive Attacker.
@@ -108,4 +107,3 @@ KEEPALIVE_INTERVAL = 4.0
 PCAP_FILE = "doip_capture.pcap"
 # PCAP file used to store captured DoIP traffic during sniffing/replay workflows.
 # If you run the attacker from a different working directory, the file will be created there.
-```
