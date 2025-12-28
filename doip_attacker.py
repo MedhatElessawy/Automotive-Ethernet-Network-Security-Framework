@@ -1,4 +1,3 @@
-```python
 """
 doip_attacker.py
 DoIP (IPv6) and UDS attack logic.
@@ -1094,4 +1093,3 @@ class DoIPAttacker:
                 self.print_doip_status()
 
             await asyncio.sleep(0.01)
-```
