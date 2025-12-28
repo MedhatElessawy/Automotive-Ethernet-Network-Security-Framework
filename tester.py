@@ -1,4 +1,3 @@
-```python
 import socket
 import struct
 from doip_utils import *
@@ -363,4 +362,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
