@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Unified Automotive Attacker - Complete & Ready to Run
 Entry Point
