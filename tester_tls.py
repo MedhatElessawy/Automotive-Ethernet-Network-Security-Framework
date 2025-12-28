@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 tester_tls.py
 Secure DoIP Diagnostic Tester (IPv6 + TLS)
@@ -457,3 +456,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+S
