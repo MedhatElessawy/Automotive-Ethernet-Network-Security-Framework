@@ -1,4 +1,3 @@
-```python
 import asyncio
 import ipaddress
 import logging
@@ -271,4 +270,3 @@ class SomeIPLayer:
             await self.client.close()
         if self.sd:
             self.sd.close()
-```
