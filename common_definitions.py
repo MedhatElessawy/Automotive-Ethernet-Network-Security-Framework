@@ -1,4 +1,3 @@
-```python
 from dataclasses import dataclass
 from someipy.serialization import SomeIpPayload, Uint8, Sint16
 
@@ -101,4 +100,3 @@ class PositionPayload(SomeIpPayload):
         # Sint16 ensures each coordinate is 2 bytes, signed range: -32768..32767.
         self.x = Sint16(x)
         self.y = Sint16(y)
-```
