@@ -1,4 +1,3 @@
-```python
 import asyncio
 import ipaddress
 import logging
@@ -285,4 +284,3 @@ async def main():
 if __name__ == "__main__":
     # Run the async main() entry point.
     asyncio.run(main())
-```
