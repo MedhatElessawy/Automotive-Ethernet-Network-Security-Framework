@@ -11,7 +11,7 @@ from someipy.logging import set_someipy_log_level
 #   Implements SOME/IP services (Async, IPv4)
 # Colors:
 #   Simple ANSI color helper for console output
-from doip_layer_tls import DoIPECU
+from doip_layer import DoIPECU
 from someip_layer import SomeIPLayer, Colors
 
 
