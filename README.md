@@ -71,6 +71,6 @@ Open 4 terminals, enter namespaces, activate venv:
 For downgrade attack:
 - Run: `python3 attackers/downgrade_attack.py` (in attacker namespace)
 
-For Lab Manual please check [Lab Manual](LAB_MANUAL.md) 
-For more detailed Technical documentation please check [Technical documentation](TECHNICAL_DOCUMENTATION.md) 
-   
+For Lab Manual please check [LAB_MANUAL.md](https://github.com/MedhatElessawy/Automotive-Ethernet-Network-Security-Framework/blob/main/docs/LAB_MANUAL.md).
+
+For more detailed Technical documentation, please check the [Technical Documentation](https://github.com/MedhatElessawy/Automotive-Ethernet-Network-Security-Framework/blob/main/docs/TECHNICAL_DOCUMENTATION.md).

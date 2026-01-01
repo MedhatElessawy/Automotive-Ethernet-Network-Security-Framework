@@ -156,5 +156,6 @@ References:
 - AUTOSAR SOME/IP specs
 - Scapy docs
 
-for installation manual please check [README](README.md) 
-For more detailed Technical documentation please check [Technical documentation](TECHNICAL_DOCUMENTATION.md) 
+For installation manual please check [README](https://github.com/MedhatElessawy/Automotive-Ethernet-Network-Security-Framework/blob/main/README.md) 
+
+For more detailed Technical documentation, please check the [Technical Documentation](https://github.com/MedhatElessawy/Automotive-Ethernet-Network-Security-Framework/blob/main/docs/TECHNICAL_DOCUMENTATION.md).

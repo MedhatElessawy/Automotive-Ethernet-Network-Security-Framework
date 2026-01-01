@@ -300,5 +300,6 @@ This lab intentionally demonstrates vulnerabilities to teach automotive protocol
 
 This document evolves with the project. Contribute via PRs!
 
-For installation manual please check [README](README.md) 
-For Lab Manual please check [Lab Manual](LAB_MANUAL.md) 
+For installation manual please check [README](https://github.com/MedhatElessawy/Automotive-Ethernet-Network-Security-Framework/blob/main/README.md) 
+
+For Lab Manual please check [Lab Manual](https://github.com/MedhatElessawy/Automotive-Ethernet-Network-Security-Framework/blob/main/docs/LAB_MANUAL.md) 
